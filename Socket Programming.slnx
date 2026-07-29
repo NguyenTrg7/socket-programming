@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Socket Programming.vcxproj" Id="103a2753-2e49-416f-bdcd-262520b77024" />
+</Solution>

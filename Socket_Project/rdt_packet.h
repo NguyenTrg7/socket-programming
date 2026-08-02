@@ -36,7 +36,7 @@ struct RDTPacket {
 #pragma pack(pop)
 
 inline uint16_t calculate_checksum(const void* buffer, size_t length) {
-    const uint16_t* ptr = static_cast<const uint16_t*>(buffer); 
+    const uint16_t* ptr = static_cast<const uint16_t*>(buffer);
     uint32_t sum = 0;
 
     while (length > 1) {

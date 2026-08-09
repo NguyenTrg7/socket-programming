@@ -1,7 +1,7 @@
 #ifndef COMMAND_ROUTER_H
 #define COMMAND_ROUTER_H
 
-#include "../Common/Session.h"
+#include "Session.h"
 #include <vector>
 #include <string>
 

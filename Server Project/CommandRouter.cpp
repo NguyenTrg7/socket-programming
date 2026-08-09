@@ -1,5 +1,6 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "CommandRouter.h"
-#include "../Common/RDT_GBN.h"
+#include "RDT_GBN.h"
 #include <unordered_map>
 #include <functional>
 #include <thread>

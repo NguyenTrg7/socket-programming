@@ -4,16 +4,18 @@
 #include "SocketIO.h"
 #include <atomic>
 #include <filesystem>
+#include <ctime> // Thêm thư viện để xử lý thời gian
 
 struct ServerSession {
     socket_t tcp_sock;
     sockaddr_in client_addr;
-    std::mutex tcp_mutex; 
+    std::mutex tcp_mutex;
 
     std::string username = "";
     bool is_logged_in = false;
     bool quit_requested = false;
-    
+    std::time_t connect_time = std::time(nullptr); // Thêm thời gian kết nối
+
     std::filesystem::path current_dir;
     std::string rnfr_filename = "";
 
@@ -22,8 +24,8 @@ struct ServerSession {
     std::string client_active_ip = "";
     int client_active_port = 0;
 
-    std::atomic<bool> isTransferring{false};
-    std::atomic<bool> abortRequested{false};
+    std::atomic<bool> isTransferring{ false };
+    std::atomic<bool> abortRequested{ false };
 };
 
 #endif

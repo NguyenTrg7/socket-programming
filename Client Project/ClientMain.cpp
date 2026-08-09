@@ -1,5 +1,5 @@
-#include "../Common/SocketIO.h"
-#include "../Common/RDT_GBN.h"
+#include"Session.h"
+#include"RDT_GBN.h"
 #include <thread>
 #include <regex>
 #include <cstring>
@@ -59,7 +59,7 @@ int main() {
         send(client_tcp, full_cmd.c_str(), full_cmd.length(), 0);
         
         memset(buf, 0, sizeof(buf));
-        int b = recv(client_tcp, buf, 1023, 0);
+        int b = recv(client_tcp, buf, 4095, 0);
         if (b <= 0) break;
         std::cout << "[SERVER] " << buf;
 

@@ -10,11 +10,11 @@
 
 #define TCP_PORT 21
 
-// Danh sách quản lý các Session đang hoạt động & Mutex đồng bộ đa luồng
+
 std::vector<ServerSession*> active_sessions;
 std::mutex registry_mutex;
 
-// Hàm định dạng và in Bảng các Client đang kết nối
+
 void print_client_table() {
     std::lock_guard<std::mutex> lock(registry_mutex);
     std::cout << "\n=================================== CLIENT SERVER TABLE ===================================\n";
@@ -53,7 +53,7 @@ void print_client_table() {
 }
 
 void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
-    // Cấp phát con trỏ Session để dễ dàng đưa vào danh sách theo dõi toàn cục
+ 
     ServerSession* session = new ServerSession();
     session->tcp_sock = client_tcp;
     session->client_addr = client_addr;
@@ -70,7 +70,7 @@ void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
     inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
     std::cout << "[SERVER] Client " << client_ip << " da ket noi." << std::endl;
 
-    // In bảng ngay khi có client mới kết nối
+  
     print_client_table();
 
     send_tcp_reply(client_tcp, 220, "Hybrid FTP Server Ready (Port 21).", &session->tcp_mutex);
@@ -97,7 +97,7 @@ void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
 
     std::cout << "[SERVER] Client " << client_ip << " da ngat ket noi." << std::endl;
 
-    // In lại bảng sau khi Client ngắt kết nối
+ 
     print_client_table();
 
     CLOSE_SOCKET(client_tcp);

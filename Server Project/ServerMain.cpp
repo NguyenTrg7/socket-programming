@@ -2,8 +2,11 @@
 #include <thread>
 #include <cstring>
 #include <ctime>
+#include <atomic>
 
 #define TCP_PORT 21
+
+std::atomic<int> active_sessions{0};
 
 void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
     ServerSession session;
@@ -13,7 +16,10 @@ void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
 
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
+
+    active_sessions++;
     std::cout << "[SERVER] Client " << client_ip << " da ket noi." << std::endl;
+    std::cout << ">>> Bảng phiên hoạt động: Hien tai co " << active_sessions.load() << " client dang ket noi.\n";
 
     send_tcp_reply(client_tcp, 220, "Hybrid FTP Server Ready (Port 21).", &session.tcp_mutex);
 
@@ -22,10 +28,14 @@ void handle_client(socket_t client_tcp, sockaddr_in client_addr) {
         memset(recv_buf, 0, sizeof(recv_buf));
         int bytes = recv(client_tcp, recv_buf, sizeof(recv_buf) - 1, 0);
         if (bytes <= 0) break;
-
+        std::cout << "[Client " << client_ip << " sent]: " << recv_buf;
         auto args = parse_command_tokens(recv_buf);
         routeCommand(args, session);
     }
+
+    active_sessions--;
+    std::cout << "[SERVER] Client " << client_ip << " ngat ket noi. Con lai " << active_sessions.load() << " client.\n";
+    
     CLOSE_SOCKET(client_tcp);
 }
 

@@ -31,7 +31,38 @@ void handleQuit(const std::vector<std::string>& args, ServerSession& session) {
 }
 
 void handleHelp(const std::vector<std::string>& args, ServerSession& session) {
-    if (args.size() == 1) send_tcp_reply(session.tcp_sock, 214, "Supported: USER PASS QUIT NOOP PWD CWD CDUP MKD RMD LIST NLST STAT SIZE MDTM TYPE MODE PORT PASV RETR STOR STOU APPE DELE RNFR RNTO HASH ABOR HELP", &session.tcp_mutex);
+    if (args.size() == 1) send_tcp_reply(session.tcp_sock, 214,
+            "- Hybrid FTP Command Reference:\r\n"
+            "  USER - Authentication username\r\n"
+            "  PASS - Authentication password\r\n"
+            "  QUIT - Disconnect from server\r\n"
+            "  NOOP - No operation (keep connection alive)\r\n"
+            "  PWD  - Print current working directory\r\n"
+            "  CWD  - Change working directory\r\n"
+            "  CDUP - Move to parent directory\r\n"
+            "  MKD  - Make (create) a new directory\r\n"
+            "  RMD  - Remove (delete) a directory\r\n"
+            "  LIST - List files and directories with details\r\n"
+            "  NLST - List file names only\r\n"
+            "  STAT - Show server or file status\r\n"
+            "  SIZE - Get file size in bytes\r\n"
+            "  MDTM - Get file modification time\r\n"
+            "  TYPE - Set data transfer type (A = ASCII, I = Binary)\r\n"
+            "  MODE - Set transfer mode (S = Stream)\r\n"
+            "  PORT - Configure Active mode connection\r\n"
+            "  PASV - Configure Passive mode connection\r\n"
+            "  RETR - Retrieve (download) a file\r\n"
+            "  STOR - Store (upload) a file\r\n"
+            "  STOU - Store file with an auto-generated unique name\r\n"
+            "  APPE - Append data to an existing file\r\n"
+            "  DELE - Delete a file\r\n"
+            "  RNFR - Rename From (select file to rename)\r\n"
+            "  RNTO - Rename To (set the new name)\r\n"
+            "  HASH - Calculate and get the SHA-256 hash of a file\r\n"
+            "  ABOR - Abort the active data transfer\r\n"
+            "  HELP - Show this help message\r\n"
+            "214 End of help list.", &session.tcp_mutex);
+
     else send_tcp_reply(session.tcp_sock, 214, "Help for " + args[1] + ": Refer to RFC 959 specification.", &session.tcp_mutex);
 }
 

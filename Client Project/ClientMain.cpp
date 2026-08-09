@@ -23,15 +23,15 @@ int main() {
 
     socket_t client_tcp = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     sockaddr_in srv = { AF_INET, htons(21), 0 };
-    inet_pton(AF_INET, "127.0.0.1", &srv.sin_addr); // Nho sua IP nay neu Server khac may
+    inet_pton(AF_INET, "127.0.0.1", &srv.sin_addr);
 
     if (connect(client_tcp, (sockaddr*)&srv, sizeof(srv)) == SOCKET_ERROR) {
         std::cerr << "Loi: Khong the ket noi den Server!" << std::endl;
         return 1;
     }
 
-    char buf[1024] = { 0 };
-    recv(client_tcp, buf, 1023, 0);
+    char buf[4096] = { 0 };
+    recv(client_tcp, buf, 4095, 0);
     std::cout << "[SERVER] " << buf;
 
     std::string input, server_ip = "127.0.0.1";

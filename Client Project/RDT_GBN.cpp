@@ -55,6 +55,12 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
             file.close(); return false; 
         }
 
+        static auto last_print_send = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_print_send).count() > 500) {
+            std::cout << "\r[RDT] Dang gui du lieu... Sequence Base: " << base << std::flush;
+            last_print_send = std::chrono::steady_clock::now();
+        }
+
         while (!fin_queued && (next_seq - base) < WINDOW_SIZE) {
             uint16_t len = 0;
             if (!eof_reached) {
@@ -112,6 +118,12 @@ bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, 
         if (abortRequested && abortRequested->load()) {
             std::cout << "[RDT] ABOR received. Stop receiving file.\n";
             file.close(); return false; 
+        }
+
+        static auto last_print_recv = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_print_recv).count() > 500) {
+            std::cout << "\r[RDT] Dang nhan du lieu... Expected Sequence: " << expected_seq << std::flush;
+            last_print_recv = std::chrono::steady_clock::now();
         }
 
         RDTPacket recv_pkt;

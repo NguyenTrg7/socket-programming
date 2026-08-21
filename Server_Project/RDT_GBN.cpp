@@ -112,7 +112,12 @@ bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, 
 
     uint32_t expected_seq = 0;
     sockaddr_in src_addr{}; socklen_t addr_len = sizeof(src_addr);
-    set_socket_timeout(sock, 5000);
+    
+    // ====================================================================
+    // THÊM: Giam thoi gian cho xuong 1000ms de theo doi tinh trang ngat ket noi
+    // ====================================================================
+    set_socket_timeout(sock, 1000); 
+    int timeout_count = 0;
 
     while (true) {
         if (abortRequested && abortRequested->load()) {
@@ -128,7 +133,20 @@ bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, 
 
         RDTPacket recv_pkt;
         int recv_bytes = recvfrom(sock, (char*)&recv_pkt, sizeof(RDTPacket), 0, (sockaddr*)&src_addr, &addr_len);
-        if (recv_bytes <= 0) continue; 
+        
+        // ====================================================================
+        // THÊM: Ngat vong lap neu khong nhan duoc data qua nhieu lan (Timeout)
+        // ====================================================================
+        if (recv_bytes <= 0) {
+            timeout_count++;
+            if (timeout_count > 10) { // 10s khong he co du lieu
+                std::cout << "\n[RDT] Loi: Timeout, ket noi truyen file bi gian doan.\n";
+                file.close();
+                return false;
+            }
+            continue; 
+        }
+        timeout_count = 0; // Reset counter neu nhan duoc goi tin hop le
 
         uint16_t payload_len = ntohs(recv_pkt.header.length);
         uint16_t recv_cs = recv_pkt.header.checksum; recv_pkt.header.checksum = 0;

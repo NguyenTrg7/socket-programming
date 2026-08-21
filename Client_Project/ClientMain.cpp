@@ -4,6 +4,8 @@
 #include <regex>
 #include <cstring>
 #include <atomic>
+#include <fstream>
+#include <iostream>
 
 bool parse_pasv_reply(const std::string& reply, std::string& ip, int& port) {
     std::regex rx(R"(\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\))");
@@ -53,6 +55,19 @@ int main() {
         if (args.empty()) continue;
         std::string cmd = args[0];
 
+        // ====================================================================
+        // Kiem tra file cuc bo truoc khi gui lenh STOR, APPE, STOU len Server
+        // ====================================================================
+        if (cmd == "STOR" || cmd == "APPE" || cmd == "STOU") {
+            std::string filename = (args.size() > 1) ? args[1] : "default.dat";
+            std::ifstream file_check(filename, std::ios::binary);
+            if (!file_check.is_open()) {
+                std::cout << "Error: Local file '" << filename << "' is not exist or unreadable !" << std::endl;
+                continue; // Dung lai, khong gui lenh sang server
+            }
+            file_check.close();
+        }
+
         // Xu ly ngat ngang ABOR
         if (cmd == "ABOR") {
             abortRequested.store(true);
@@ -77,12 +92,7 @@ int main() {
         }
         else if (strncmp(buf, "150", 3) == 0) { 
             // Bat dau truyen du lieu ngam
-            std::string filename = (args.size() > 1) ? args[1] : "";
-            if (filename.empty() && (cmd == "STOR" || cmd == "APPE" || cmd == "STOU")) {
-                std::cout << "Loi: Thieu ten file de upload!" << std::endl;
-                continue;
-            }
-
+            std::string filename = (args.size() > 1) ? args[1] : "default.dat";
             abortRequested.store(false);
 
             std::thread([=, &abortRequested]() {

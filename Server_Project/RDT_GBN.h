@@ -4,7 +4,7 @@
 #include "SocketIO.h"
 #include <atomic>
 #include <string>
-
+// from reliable transfer to unreliable transfer
 #define FLAG_DATA 0x01
 #define FLAG_ACK  0x02
 #define MAX_PAYLOAD_SIZE 1024

@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 
 uint16_t calculate_checksum(const void* buffer, size_t length) {
     const uint16_t* ptr = static_cast<const uint16_t*>(buffer);
@@ -40,6 +41,12 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) return false;
 
+    file.seekg(0, std::ios::end);
+    size_t total_bytes = file.tellg();
+    file.seekg(0, std::ios::beg);
+    uint32_t total_packets = (total_bytes + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE;
+    if (total_packets == 0) total_packets = 1;
+
     socklen_t addr_len = sizeof(dest_addr);
     set_socket_timeout(sock, 100);
     std::vector<GbnSlot> window(WINDOW_SIZE);
@@ -49,16 +56,31 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
     auto base_timer_start = std::chrono::steady_clock::now();
     char read_buf[MAX_PAYLOAD_SIZE];
 
+    auto last_print_send = std::chrono::steady_clock::now();
+    auto start_time = std::chrono::steady_clock::now();
+
     while (true) {
         if (abortRequested && abortRequested->load()) {
-            std::cout << "[RDT] ABOR received. Stop sending file.\n";
+            std::cout << "\n[RDT] ABOR received. Stop sending file.\n";
             file.close(); return false; 
         }
 
-        static auto last_print_send = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_print_send).count() > 500) {
-            std::cout << "\r[RDT] Dang gui du lieu... Sequence Base: " << base << std::flush;
-            last_print_send = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print_send).count() >= 100) {
+            double elapsed_sec = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() / 1000.0;
+            if (elapsed_sec <= 0) elapsed_sec = 0.001;
+
+            float percent = (float)base / total_packets * 100.0f;
+            if (percent > 100.0f) percent = 100.0f;
+
+            double current_bytes = (double)base * MAX_PAYLOAD_SIZE;
+            double mb_per_sec = (current_bytes / (1024.0 * 1024.0)) / elapsed_sec;
+
+            std::cout << "\r[RDT Send] " << base << "/" << total_packets << " pkts (" 
+                      << std::fixed << std::setprecision(1) << percent << "%) "
+                      << "| Speed: " << std::setprecision(2) << mb_per_sec << " MB/s" << std::flush;
+
+            last_print_send = now;
         }
 
         while (!fin_queued && (next_seq - base) < WINDOW_SIZE) {
@@ -79,7 +101,19 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
             if (!timer_running) { base_timer_start = std::chrono::steady_clock::now(); timer_running = true; }
         }
 
-        if (fin_queued && base == next_seq) { file.close(); return true; }
+        if (fin_queued && base == next_seq) { 
+            auto end_time = std::chrono::steady_clock::now();
+            double total_sec = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0;
+            if (total_sec <= 0.0001) total_sec = 0.001;
+
+            double total_mb = total_bytes / (1024.0 * 1024.0);
+            double avg_mb_s = total_mb / total_sec;
+
+            std::cout << "\r[RDT Send] 100% COMPLETE! (" << total_packets << "/" << total_packets << " pkts) "
+                      << "| Time: " << std::fixed << std::setprecision(2) << total_sec << "s "
+                      << "| Avg Speed: " << avg_mb_s << " MB/s\n";
+            file.close(); return true; 
+        }
 
         RDTPacket ack_pkt; sockaddr_in src_addr; socklen_t src_len = sizeof(src_addr);
         if (recvfrom(sock, (char*)&ack_pkt, sizeof(RDTPacket), 0, (sockaddr*)&src_addr, &src_len) > 0) {
@@ -96,7 +130,10 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
 
         if (timer_running && std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - base_timer_start).count() >= TIMEOUT_MS) {
             retransmit_rounds++;
-            if (retransmit_rounds > MAX_RETRANSMIT) { file.close(); return false; }
+            if (retransmit_rounds > MAX_RETRANSMIT) { 
+                std::cout << "\n[RDT] Retransmit limit reached.\n";
+                file.close(); return false; 
+            }
             for (uint32_t s = base; s < next_seq; s++) {
                 GbnSlot& slot = window[s % WINDOW_SIZE];
                 rdt_raw_send(sock, dest_addr, s, 0, FLAG_DATA, slot.length > 0 ? slot.data : nullptr, slot.length);
@@ -113,40 +150,45 @@ bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, 
     uint32_t expected_seq = 0;
     sockaddr_in src_addr{}; socklen_t addr_len = sizeof(src_addr);
     
-    // ====================================================================
-    // THÊM: Giam thoi gian cho xuong 1000ms de theo doi tinh trang ngat ket noi
-    // ====================================================================
     set_socket_timeout(sock, 1000); 
     int timeout_count = 0;
 
+    auto last_print_recv = std::chrono::steady_clock::now();
+    auto start_time = std::chrono::steady_clock::now();
+
     while (true) {
         if (abortRequested && abortRequested->load()) {
-            std::cout << "[RDT] ABOR received. Stop receiving file.\n";
+            std::cout << "\n[RDT] ABOR received. Stop receiving file.\n";
             file.close(); return false; 
         }
 
-        static auto last_print_recv = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_print_recv).count() > 500) {
-            std::cout << "\r[RDT] Dang nhan du lieu... Expected Sequence: " << expected_seq << std::flush;
-            last_print_recv = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print_recv).count() >= 100) {
+            double elapsed_sec = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() / 1000.0;
+            if (elapsed_sec <= 0) elapsed_sec = 0.001;
+
+            double current_bytes = (double)expected_seq * MAX_PAYLOAD_SIZE;
+            double mb_per_sec = (current_bytes / (1024.0 * 1024.0)) / elapsed_sec;
+
+            std::cout << "\r[RDT Recv] Received: " << expected_seq << " pkts "
+                      << "| Speed: " << std::fixed << std::setprecision(2) << mb_per_sec << " MB/s" << std::flush;
+
+            last_print_recv = now;
         }
 
         RDTPacket recv_pkt;
         int recv_bytes = recvfrom(sock, (char*)&recv_pkt, sizeof(RDTPacket), 0, (sockaddr*)&src_addr, &addr_len);
         
-        // ====================================================================
-        // THÊM: Ngat vong lap neu khong nhan duoc data qua nhieu lan (Timeout)
-        // ====================================================================
         if (recv_bytes <= 0) {
             timeout_count++;
-            if (timeout_count > 10) { // 10s khong he co du lieu
-                std::cout << "\n[RDT] Loi: Timeout, ket noi truyen file bi gian doan.\n";
+            if (timeout_count > 10) {
+                std::cout << "\n[RDT] Error: Timeout, file transfer connection interrupted.\n";
                 file.close();
                 return false;
             }
             continue; 
         }
-        timeout_count = 0; // Reset counter neu nhan duoc goi tin hop le
+        timeout_count = 0;
 
         uint16_t payload_len = ntohs(recv_pkt.header.length);
         uint16_t recv_cs = recv_pkt.header.checksum; recv_pkt.header.checksum = 0;
@@ -158,7 +200,17 @@ bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, 
             rdt_raw_send(sock, src_addr, 0, expected_seq, FLAG_ACK, nullptr, 0);
 
             if (payload_len == 0) {
-                // Gui nhieu ACK chot de Client nhan duoc
+                auto end_time = std::chrono::steady_clock::now();
+                double total_sec = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0;
+                if (total_sec <= 0.0001) total_sec = 0.001;
+
+                double total_mb = ((double)expected_seq * MAX_PAYLOAD_SIZE) / (1024.0 * 1024.0);
+                double avg_mb_s = total_mb / total_sec;
+
+                std::cout << "\r[RDT Recv] COMPLETE! (" << expected_seq << " pkts) "
+                          << "| Time: " << std::fixed << std::setprecision(2) << total_sec << "s "
+                          << "| Avg Speed: " << avg_mb_s << " MB/s\n";
+
                 set_socket_timeout(sock, 500);
                 for (int i = 0; i < 5; i++) {
                     RDTPacket dup; sockaddr_in tmp_addr; socklen_t tmp_len = sizeof(tmp_addr);

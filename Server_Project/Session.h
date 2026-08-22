@@ -19,7 +19,7 @@ struct ServerSession {
     std::filesystem::path current_dir;
     std::string rnfr_filename = "";
 
-    bool is_pasv_mode = true;
+    bool is_pasv_mode = false;
     int data_port = 2222;
     std::string client_active_ip = "";
     int client_active_port = 0;

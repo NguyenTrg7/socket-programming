@@ -4,6 +4,8 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <filesystem> // Bổ sung thư viện để xử lý tên file và kiểm tra tồn tại
+#include <iostream>
 
 uint16_t calculate_checksum(const void* buffer, size_t length) {
     const uint16_t* ptr = static_cast<const uint16_t*>(buffer);
@@ -50,12 +52,17 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
     socklen_t addr_len = sizeof(dest_addr);
     set_socket_timeout(sock, 100);
     std::vector<GbnSlot> window(WINDOW_SIZE);
+    
     uint32_t base = 0, next_seq = 0;
     bool eof_reached = false, fin_queued = false, timer_running = false;
     int retransmit_rounds = 0;
     auto base_timer_start = std::chrono::steady_clock::now();
     char read_buf[MAX_PAYLOAD_SIZE];
 
+    double cwnd = 1.0;                 
+    double ssthresh = 64.0;            
+    int current_window = 1;           
+    
     auto last_print_send = std::chrono::steady_clock::now();
     auto start_time = std::chrono::steady_clock::now();
 
@@ -72,18 +79,21 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
 
             float percent = (float)base / total_packets * 100.0f;
             if (percent > 100.0f) percent = 100.0f;
+            double mb_per_sec = ((double)base * MAX_PAYLOAD_SIZE / (1024.0 * 1024.0)) / elapsed_sec;
 
-            double current_bytes = (double)base * MAX_PAYLOAD_SIZE;
-            double mb_per_sec = (current_bytes / (1024.0 * 1024.0)) / elapsed_sec;
-
+            // In thêm cwnd để theo dõi Congestion Control hoạt động
             std::cout << "\r[RDT Send] " << base << "/" << total_packets << " pkts (" 
                       << std::fixed << std::setprecision(1) << percent << "%) "
+                      << "| cwnd: " << (int)cwnd 
                       << "| Speed: " << std::setprecision(2) << mb_per_sec << " MB/s" << std::flush;
-
             last_print_send = now;
         }
 
-        while (!fin_queued && (next_seq - base) < WINDOW_SIZE) {
+        // Tính toán Flow Control kết hợp Congestion Control
+        // Cửa sổ thực tế = min(Congestion Window, Receiver Window)
+        current_window = std::min((int)cwnd, WINDOW_SIZE);
+
+        while (!fin_queued && (next_seq - base) < current_window) {
             uint16_t len = 0;
             if (!eof_reached) {
                 file.read(read_buf, sizeof(read_buf));
@@ -102,16 +112,7 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
         }
 
         if (fin_queued && base == next_seq) { 
-            auto end_time = std::chrono::steady_clock::now();
-            double total_sec = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() / 1000.0;
-            if (total_sec <= 0.0001) total_sec = 0.001;
-
-            double total_mb = total_bytes / (1024.0 * 1024.0);
-            double avg_mb_s = total_mb / total_sec;
-
-            std::cout << "\r[RDT Send] 100% COMPLETE! (" << total_packets << "/" << total_packets << " pkts) "
-                      << "| Time: " << std::fixed << std::setprecision(2) << total_sec << "s "
-                      << "| Avg Speed: " << avg_mb_s << " MB/s\n";
+            std::cout << "\n[RDT Send] 100% COMPLETE!\n";
             file.close(); return true; 
         }
 
@@ -122,6 +123,16 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
                 uint32_t ack_num = ntohl(ack_pkt.header.ack_num);
                 if (ack_num + 1 > base && ack_num < next_seq) {
                     base = ack_num + 1; retransmit_rounds = 0;
+                    
+                    // ==========================================
+                    // XỬ LÝ CONGESTION CONTROL KHI NHẬN ACK TỐT
+                    // ==========================================
+                    if (cwnd < ssthresh) {
+                        cwnd += 1.0; // AIMD: Slow Start (Tăng theo cấp số nhân theo từng đợt ACK)
+                    } else {
+                        cwnd += 1.0 / cwnd; // AIMD: Congestion Avoidance (Tăng tuyến tính)
+                    }
+
                     timer_running = (base != next_seq);
                     if (timer_running) base_timer_start = std::chrono::steady_clock::now();
                 }
@@ -134,6 +145,13 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
                 std::cout << "\n[RDT] Retransmit limit reached.\n";
                 file.close(); return false; 
             }
+            
+            // ==========================================
+            // XỬ LÝ CONGESTION CONTROL KHI TIMEOUT (RỚT GÓI)
+            // ==========================================
+            ssthresh = std::max(cwnd / 2.0, 1.0); // Giảm ngưỡng ssthresh xuống 1 nửa
+            cwnd = 1.0;                           // Trở về pha Slow Start
+
             for (uint32_t s = base; s < next_seq; s++) {
                 GbnSlot& slot = window[s % WINDOW_SIZE];
                 rdt_raw_send(sock, dest_addr, s, 0, FLAG_DATA, slot.length > 0 ? slot.data : nullptr, slot.length);
@@ -144,7 +162,31 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
 }
 
 bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, std::atomic<bool>* abortRequested) {
-    std::ofstream file(filename, append ? (std::ios::binary | std::ios::app) : std::ios::binary);
+    std::string actual_filename = filename;
+
+    // Tự động đổi tên nếu file đã tồn tại và KHÔNG phải lệnh APPE (append = false)
+    if (!append && std::filesystem::exists(actual_filename)) {
+        std::filesystem::path p(actual_filename);
+        std::string stem = p.stem().string();       
+        std::string ext = p.extension().string();   
+        
+        int counter = 1;
+        std::filesystem::path new_path;
+        do {
+            std::string new_name = stem + "(" + std::to_string(counter) + ")" + ext;
+            if (p.parent_path().empty()) {
+                new_path = new_name;
+            } else {
+                new_path = p.parent_path() / new_name;
+            }
+            counter++;
+        } while (std::filesystem::exists(new_path));
+        
+        actual_filename = new_path.string();
+        std::cout << "\n[RDT Recv] File exists. Auto-renamed to: " << actual_filename << "\n";
+    }
+
+    std::ofstream file(actual_filename, append ? (std::ios::binary | std::ios::app) : std::ios::binary);
     if (!file.is_open()) return false;
 
     uint32_t expected_seq = 0;

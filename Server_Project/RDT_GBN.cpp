@@ -4,6 +4,8 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <filesystem> // Bổ sung thư viện để xử lý tên file và kiểm tra tồn tại
+#include <iostream>
 
 uint16_t calculate_checksum(const void* buffer, size_t length) {
     const uint16_t* ptr = static_cast<const uint16_t*>(buffer);
@@ -144,7 +146,31 @@ bool rdt_send_file_gbn(socket_t sock, const sockaddr_in& dest_addr, const std::s
 }
 
 bool rdt_recv_file_gbn(socket_t sock, const std::string& filename, bool append, std::atomic<bool>* abortRequested) {
-    std::ofstream file(filename, append ? (std::ios::binary | std::ios::app) : std::ios::binary);
+    std::string actual_filename = filename;
+
+    // Tự động đổi tên nếu file đã tồn tại và KHÔNG phải lệnh APPE (append = false)
+    if (!append && std::filesystem::exists(actual_filename)) {
+        std::filesystem::path p(actual_filename);
+        std::string stem = p.stem().string();       
+        std::string ext = p.extension().string();   
+        
+        int counter = 1;
+        std::filesystem::path new_path;
+        do {
+            std::string new_name = stem + "(" + std::to_string(counter) + ")" + ext;
+            if (p.parent_path().empty()) {
+                new_path = new_name;
+            } else {
+                new_path = p.parent_path() / new_name;
+            }
+            counter++;
+        } while (std::filesystem::exists(new_path));
+        
+        actual_filename = new_path.string();
+        std::cout << "\n[RDT Recv] File exists. Auto-renamed to: " << actual_filename << "\n";
+    }
+
+    std::ofstream file(actual_filename, append ? (std::ios::binary | std::ios::app) : std::ios::binary);
     if (!file.is_open()) return false;
 
     uint32_t expected_seq = 0;
